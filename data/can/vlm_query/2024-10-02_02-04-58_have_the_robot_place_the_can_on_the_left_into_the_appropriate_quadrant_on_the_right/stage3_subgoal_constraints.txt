@@ -1,0 +1,7 @@
+def stage3_subgoal_constraint1(end_effector, keypoints):
+    """The can's keypoint 1 should be 2cm above the target quadrant (keypoint 9)."""
+    target_quadrant_keypoint = keypoints[9]
+    offsetted_point = target_quadrant_keypoint + np.array([0, 0, 0.02])  # 2cm above the quadrant
+    cost = np.linalg.norm(keypoints[1] - offsetted_point)
+    return cost
+

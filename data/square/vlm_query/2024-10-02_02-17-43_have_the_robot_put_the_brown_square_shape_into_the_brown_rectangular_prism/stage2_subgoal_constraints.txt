@@ -1,0 +1,6 @@
+def stage2_subgoal_constraint1(end_effector, keypoints):
+    """Align the brown square shape (keypoint 0) with the opening of the brown rectangular prism (keypoints 6 and 7)."""
+    # The center of the opening is the midpoint between keypoints 6 and 7.
+    opening_center = (keypoints[6] + keypoints[7]) / 2
+    return np.linalg.norm(keypoints[0] - opening_center)
+

@@ -1,0 +1,6 @@
+def stage3_subgoal_constraint1(end_effector, keypoints):
+    """The brown square shape (keypoint 0) should be inside the brown rectangular prism (keypoints 8 and 9)."""
+    # The brown square shape should be aligned with the bottom of the rectangular prism.
+    bottom_center = (keypoints[8] + keypoints[9]) / 2
+    return np.linalg.norm(keypoints[0] - bottom_center)
+

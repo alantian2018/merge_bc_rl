@@ -1,0 +1,60 @@
+```python
+# The task involves putting the brown square shape into the brown rectangular prism.
+# The brown square shape is represented by keypoints 0, 1, 2, 3, 4, and 5.
+# The brown rectangular prism is represented by keypoints 6, 7, 8, 9, and 10.
+
+# The task can be broken down into 3 stages:
+# 1. Grasp the brown square shape.
+# 2. Align the brown square shape with the opening of the brown rectangular prism.
+# 3. Insert the brown square shape into the brown rectangular prism.
+
+num_stages = 3
+
+### stage 1 sub-goal constraints (grasp the brown square shape)
+def stage1_subgoal_constraint1(end_effector, keypoints):
+    """Align the end-effector with the brown square shape at keypoint 0."""
+    return np.linalg.norm(end_effector - keypoints[0])
+
+### stage 1 path constraints (none for grasping stage)
+# No path constraints needed for this stage.
+
+### stage 2 sub-goal constraints (align the brown square shape with the opening of the brown rectangular prism)
+def stage2_subgoal_constraint1(end_effector, keypoints):
+    """Align the brown square shape (keypoint 0) with the opening of the brown rectangular prism (keypoints 6 and 7)."""
+    # The center of the opening is the midpoint between keypoints 6 and 7.
+    opening_center = (keypoints[6] + keypoints[7]) / 2
+    return np.linalg.norm(keypoints[0] - opening_center)
+
+### stage 2 path constraints
+def stage2_path_constraint1(end_effector, keypoints):
+    """The robot must still be grasping the brown square shape (keypoint 0)."""
+    return get_grasping_cost_by_keypoint_idx(0)
+
+### stage 3 sub-goal constraints (insert the brown square shape into the brown rectangular prism)
+def stage3_subgoal_constraint1(end_effector, keypoints):
+    """The brown square shape (keypoint 0) should be inside the brown rectangular prism (keypoints 8 and 9)."""
+    # The brown square shape should be aligned with the bottom of the rectangular prism.
+    bottom_center = (keypoints[8] + keypoints[9]) / 2
+    return np.linalg.norm(keypoints[0] - bottom_center)
+
+### stage 3 path constraints
+def stage3_path_constraint1(end_effector, keypoints):
+    """The robot must still be grasping the brown square shape (keypoint 0)."""
+    return get_grasping_cost_by_keypoint_idx(0)
+
+"""
+Summarize keypoints to be grasped in all grasping stages.
+The length of the list should be equal to the number of stages.
+For grasping stage, write the keypoint index. For non-grasping stage, write -1.
+"""
+grasp_keypoints = [0, -1, -1]
+
+"""
+Summarize at **the end of which stage** the robot should release the keypoints.
+The keypoint indices must appear in an earlier stage as defined in `grasp_keypoints` (i.e., a keypoint can only be released only if it has been grasped previously).
+Only release object when it's necessary to complete the task, e.g., drop bouquet in the vase.
+The length of the list should be equal to the number of stages.
+If a keypoint is to be released at the end of a stage, write the keypoint index at the corresponding location. Otherwise, write -1.
+"""
+release_keypoints = [-1, -1, 0]
+```

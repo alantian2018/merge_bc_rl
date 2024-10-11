@@ -1,0 +1,6 @@
+def stage1_subgoal_constraint1(end_effector, keypoints):
+    """Align the end-effector with the can's keypoint 1."""
+    can_keypoint = keypoints[1]
+    cost = np.linalg.norm(end_effector - can_keypoint)
+    return cost
+
