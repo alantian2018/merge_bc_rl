@@ -10,6 +10,7 @@ import h5py
 import json
 import gym
 from gym import spaces, Env
+from collections import OrderedDict
 from rekep_rl.ReKep.utils_rl import *
 from rekep_rl.benchmark import get_dense_reward_constraint, get_reward_func
 from stable_baselines3.common.env_checker import check_env
@@ -29,23 +30,26 @@ class CustomRewardGymWrapper(gym.Env,Wrapper ):
                  objects,
                  initial_local_pose,
                  reward_functions,
-                 #max_episode_steps = 300, 
                  camheight=1024, 
                  camwidth=1024,
                  camera='agentview',
-                 keys=None):
+                 low_dim = True,
+                 keys=[ "robot0_eef_pos",
+                    "robot0_eef_quat",
+                    "robot0_gripper_qpos",
+                    "object"]):
 
         # Run super method
         super().__init__(env=env)
 
         self._is_v1 = (robosuite.__version__.split(".")[0] == "1")
         self.LOCAL_POSE = initial_local_pose
-        self.reward_functions = reward_functions
         self.objects = objects
+        self.reward_functions = reward_functions
         self.camera = camera
         self.camheight = camheight
         self.camwidth = camwidth
-        #print(self.camheight, self.camwidth)
+        
       
         #self.max_episode_steps = max_episode_steps
         self.steps = 0
@@ -71,22 +75,28 @@ class CustomRewardGymWrapper(gym.Env,Wrapper ):
             if self.env.use_object_obs:
                 keys += ["object-state"]
             # Add image obs if requested
-          #  if self.env.use_camera_obs:
-          #      keys += [f"{cam_name}_image" for cam_name in self.env.camera_names]
+            if not low_dim:
+                if self.env.use_camera_obs:
+                    keys += [f"{cam_name}_image" for cam_name in self.env.camera_names]
             # Iterate over all robots to add to state
             for idx in range(len(self.env.robots)):
                 keys += ["robot{}_proprio-state".format(idx)]
         self.keys = keys
+
+        self.low_dim = low_dim
       
 
         # Gym specific attributes
         self.env.spec = None
 
         # set up observation and action spaces
-        obs = self.env.reset()
-        self.modality_dims = {key: obs[key].shape for key in self.keys}
-       
-        flat_ob = self._flatten_obs(obs)
+        flat_ob = self.reset()
+        obs = self.get_observation()
+        self.modality_dims = OrderedDict()
+        for key in obs.keys():
+            self.modality_dims[key] =  obs[key].shape[0]
+    #    print(f'mod dim {self.modality_dims}')
+        
         self.obs_dim = flat_ob.size
         high = np.inf * np.ones(self.obs_dim)
         low = -high
@@ -99,7 +109,6 @@ class CustomRewardGymWrapper(gym.Env,Wrapper ):
          
 
     def custom_reward(self):
-        
         self.ee, self.keypoints, self.pixels = track_keypoints(self, 
                                                                self.LOCAL_POSE, 
                                                                self.objects,
@@ -127,11 +136,11 @@ class CustomRewardGymWrapper(gym.Env,Wrapper ):
             np.array: observations flattened into a 1d array
         """
         ob_lst = []
-        for key in self.keys:
-            if key in obs_dict:
-                if verbose:
-                    print("adding key: {}".format(key))
-                ob_lst.append(np.array(obs_dict[key]).flatten())
+        for key in obs_dict:
+            if verbose:
+                print("adding key: {}".format(key))
+            obs = obs_dict[key]
+            ob_lst.append(np.array(obs).flatten())
         return np.concatenate(ob_lst)
 
     def reset(self, seed=None, options=None):
@@ -141,11 +150,14 @@ class CustomRewardGymWrapper(gym.Env,Wrapper ):
             else:
                 raise TypeError("Seed must be an integer type!")
 
-        ob_dict = self.env.reset()
+        self.env.reset()
         self.steps = 0
+        out = self.get_observation()
         
+
         
-        return self._flatten_obs(ob_dict)
+        return self._flatten_obs(out)
+         
 
     def reset_to(self, state):
         """
@@ -186,7 +198,9 @@ class CustomRewardGymWrapper(gym.Env,Wrapper ):
             self.set_goal(**state["goal"])
         if should_ret:
             # only return obs if we've done a forward call - otherwise the observations will be garbage
+            
             return self.get_flat_observation()
+        
         return None
 
     def step(self, action):
@@ -216,17 +230,18 @@ class CustomRewardGymWrapper(gym.Env,Wrapper ):
        #     done = True
         self.steps += 1
 
-        return self._flatten_obs(ob_dict), reward, terminated, info
+         
+        return self._flatten_obs(self.get_observation()), reward, terminated, info
+       
 
     def render(self):
         return self.env.render(mode="rgb_array", height=self.camheight, width=self.camwidth, camera_name=self.camera) 
 
     def compute_reward(self, achieved_goal, desired_goal, info):
-       
- 
-        if self.reward_Functions is None:
-            return self.env.reward()
 
+        if self.reward_functions is None:
+            return self.env.reward()
+        print('using custom reward')
         return self.custom_reward()
 
     def get_camera_intrinsic_matrix(self, camera_name, camera_height, camera_width):
@@ -240,6 +255,7 @@ class CustomRewardGymWrapper(gym.Env,Wrapper ):
         return K
 
     def get_camera_extrinsic_matrix(self, camera_name):
+         
         cam_id = self.env.sim.model.camera_name2id(camera_name)
         camera_pos = self.env.sim.data.cam_xpos[cam_id]
         camera_rot = self.env.sim.data.cam_xmat[cam_id].reshape(3, 3)
@@ -264,16 +280,44 @@ class CustomRewardGymWrapper(gym.Env,Wrapper ):
         return K_exp @ T.pose_inv(R)
 
     def get_observation(self):
-        obs = self._get_observations()
-        return obs
-        """
-        out = []
-        for key in self.keys:
-            if key in obs:
-                out.append(np.array(obs[key]))
-        out  = np.concatenate(out)
-        return out
-        """
+        di = self.env._get_observations(force_update=True) 
+        ret = OrderedDict()
+        if not self.low_dim:
+            for k in self.keys:
+                if (k in ObsUtils.OBS_KEYS_TO_MODALITIES) and ObsUtils.key_is_obs_modality(key=k, obs_modality="rgb"):
+                    # by default images from mujoco are flipped in height
+                    ret[k] = di[k][::-1]
+                    if self.postprocess_visual_obs:
+                        ret[k] = ObsUtils.process_obs(obs=ret[k], obs_key=k)
+                elif (k in ObsUtils.OBS_KEYS_TO_MODALITIES) and ObsUtils.key_is_obs_modality(key=k, obs_modality="depth"):
+                    # by default depth images from mujoco are flipped in height
+                    ret[k] = di[k][::-1]
+                    if len(ret[k].shape) == 2:
+                        ret[k] = ret[k][..., None] # (H, W, 1)
+                    assert len(ret[k].shape) == 3 
+                    # scale entries in depth map to correspond to real distance.
+                    ret[k] = self.get_real_depth_map(ret[k])
+                    if self.postprocess_visual_obs:
+                        ret[k] = ObsUtils.process_obs(obs=ret[k], obs_key=k)
+
+        # "object" key contains object information
+        ret["object"] =  np.array(di["object-state"]).flatten()
+        
+        
+
+        
+        for robot in self.env.robots:
+            # add all robot-arm-specific observations. Note the (k not in ret) check
+            # ensures that we don't accidentally add robot wrist images a second time
+            pf = robot.robot_model.naming_prefix
+            for k in di:
+                if k.startswith(pf) and (k not in ret) and \
+                    (not k.endswith("proprio-state")):
+                    ret[k] =  np.array(di[k]).flatten()
+                   
+        
+        return ret
+        
 
     def get_flat_observation(self):
         return self._flatten_obs(self.get_observation())
@@ -404,11 +448,13 @@ if __name__ == '__main__':
                                   objects, 
                                   initial_local_pose,
                                   reward_functions,
-                                  args.camera_names[0],
+                                  True,
+                                  'cpu', 
                                   args.camheight,
-                                  args.camwidth
+                                  args.camwidth,
+                                  args.camera_names[0],
                                   )
-    print(type(env))
+  
     env.reset()
     
     check_env(env)

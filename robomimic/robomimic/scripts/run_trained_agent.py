@@ -91,7 +91,7 @@ def rollout(policy, env, horizon, render=False, video_writer=None, video_skip=5,
         stats (dict): some statistics for the rollout - such as return, horizon, and task success
         traj (dict): dictionary that corresponds to the rollout trajectory
     """
-    assert isinstance(env, EnvBase)
+  
     assert isinstance(policy, RolloutPolicy)
     assert not (render and (video_writer is not None))
 
@@ -101,6 +101,7 @@ def rollout(policy, env, horizon, render=False, video_writer=None, video_skip=5,
 
     # hack that is necessary for robosuite tasks for deterministic action playback
     obs = env.reset_to(state_dict)
+   
 
     results = {}
     video_count = 0  # video frame counter
@@ -114,7 +115,7 @@ def rollout(policy, env, horizon, render=False, video_writer=None, video_skip=5,
 
             # get action from policy
             act = policy(ob=obs)
-
+             
             # play action
             next_obs, r, done, _ = env.step(act)
 
@@ -292,7 +293,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--n_rollouts",
         type=int,
-        default=27,
+        default=20,
         help="number of rollouts",
     )
 

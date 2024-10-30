@@ -783,7 +783,7 @@ class RNN_MIMO_MLP(Module):
         for obs_group in self.input_obs_group_shapes:
             for k in self.input_obs_group_shapes[obs_group]:
                 # first two dimensions should be [B, T] for inputs
-                assert inputs[obs_group][k].ndim - 2 == len(self.input_obs_group_shapes[obs_group][k])
+                assert inputs[obs_group][k].ndim - 2 == len(self.input_obs_group_shapes[obs_group][k]), f'dim {inputs[obs_group][k].shape}'
 
         # use encoder to extract flat rnn inputs
         rnn_inputs = TensorUtils.time_distributed(inputs, self.nets["encoder"], inputs_as_kwargs=True)
@@ -1051,13 +1051,18 @@ class MIMO_Transformer(Module):
                 to @self.output_shapes. Leading dimensions will be batch and time [B, T, ...]
                 for each tensor.
         """
+     
         for obs_group in self.input_obs_group_shapes:
             for k in self.input_obs_group_shapes[obs_group]:
                 # first two dimensions should be [B, T] for inputs
                 if inputs[obs_group][k] is None:
                     continue
-                assert inputs[obs_group][k].ndim - 2 == len(self.input_obs_group_shapes[obs_group][k])
+              #  print(f'got shape { inputs[obs_group][k].shape}')
+                if (inputs[obs_group][k].ndim == 1):
+                    inputs[obs_group][k] = np.reshape(inputs[obs_group][k], (1,1,-1))
 
+                assert inputs[obs_group][k].ndim - 2 == len(self.input_obs_group_shapes[obs_group][k]), f'got shape { inputs[obs_group][k].shape}'
+      
         inputs = inputs.copy()
 
         transformer_encoder_outputs = None

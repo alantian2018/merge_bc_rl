@@ -552,6 +552,7 @@ class GMMActorNetwork(ActorNetwork):
             action (torch.Tensor): batch of actions from policy distribution
         """
         dist = self.forward_train(obs_dict, goal_dict)
+         
         return dist.sample()
 
     def _to_string(self):
@@ -849,7 +850,7 @@ class RNNGMMActorNetwork(RNNActorNetwork):
             # repeat the goal observation in time to match dimension with obs_dict
             mod = list(obs_dict.keys())[0]
             goal_dict = TensorUtils.unsqueeze_expand_at(goal_dict, size=obs_dict[mod].shape[1], dim=1)
-
+         
         outputs = RNN_MIMO_MLP.forward(
             self, obs=obs_dict, goal=goal_dict, rnn_init_state=rnn_init_state, return_state=return_state)
 
@@ -1226,7 +1227,7 @@ class TransformerGMMActorNetwork(TransformerActorNetwork):
         assert std_activation in self.activations, \
             "std_activation must be one of: {}; instead got: {}".format(self.activations.keys(), std_activation)
         self.std_activation = std_activation
-
+         
         super(TransformerGMMActorNetwork, self).__init__(
             obs_shapes=obs_shapes,
             ac_dim=ac_dim,
@@ -1272,9 +1273,10 @@ class TransformerGMMActorNetwork(TransformerActorNetwork):
             # repeat the goal observation in time to match dimension with obs_dict
             mod = list(obs_dict.keys())[0]
             goal_dict = TensorUtils.unsqueeze_expand_at(goal_dict, size=obs_dict[mod].shape[1], dim=1)
-
+        #print(f'obs dictionary {obs_dict}')
         forward_kwargs = dict(obs=obs_dict, goal=goal_dict)
-
+        #print(f'fkwargs {forward_kwargs}')
+         
         outputs = MIMO_Transformer.forward(self, **forward_kwargs)
         
         means = outputs["mean"]
@@ -1310,7 +1312,7 @@ class TransformerGMMActorNetwork(TransformerActorNetwork):
         if self.use_tanh:
             # Wrap distribution with Tanh
             dists = TanhWrappedDistribution(base_dist=dists, scale=1.)
-
+               
         return dists
 
     def forward(self, obs_dict, actions=None, goal_dict=None):
@@ -1324,6 +1326,7 @@ class TransformerGMMActorNetwork(TransformerActorNetwork):
             action (torch.Tensor): batch of actions from policy distribution
         """
         out = self.forward_train(obs_dict=obs_dict, actions=actions, goal_dict=goal_dict)
+       
         return out.sample()
 
     def _to_string(self):

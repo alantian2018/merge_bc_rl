@@ -48,6 +48,7 @@ class NormalizedBoxEnv(ProxyEnv):
     def step(self, action):
         lb = self._wrapped_env.action_space.low
         ub = self._wrapped_env.action_space.high
+        
         scaled_action = lb + (action + 1.) * 0.5 * (ub - lb)
         scaled_action = np.clip(scaled_action, lb, ub)
 

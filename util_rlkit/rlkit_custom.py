@@ -65,7 +65,9 @@ class CustomBaseRLAlgorithm(object, metaclass=abc.ABCMeta):
 
     def _end_epoch(self, epoch):
         snapshot = self._get_snapshot()
+        
         logger.save_itr_params(epoch, snapshot)
+
         gt.stamp('saving')
         self._log_stats(epoch)
 
@@ -80,16 +82,35 @@ class CustomBaseRLAlgorithm(object, metaclass=abc.ABCMeta):
     def _get_snapshot(self):
         snapshot = {}
         for k, v in self.trainer.get_snapshot().items():
+            if (k == 'policy'):
+                snapshot['trainer/' + k]  = v.state_dict()
+                snapshot['trainer/modality_dims'] = v.modality_dims
+                continue
             snapshot['trainer/' + k] = v
         for k, v in self.expl_data_collector.get_snapshot().items():
+             
+            if (k == 'policy'):
+                snapshot['exploration/' + k]  = v.state_dict()
+                snapshot['exploration/modality_dims'] = v.modality_dims
+                continue
+            
             if k == 'env':
                 continue
             snapshot['exploration/' + k] = v
         for k, v in self.eval_data_collector.get_snapshot().items():
+            if (k == 'policy'):
+                snapshot['evaluation/' + k]  = v.state_dict()
+                snapshot['evaluation/modality_dims'] = v.modality_dims
+                continue
             if k == 'env':
                 continue
             snapshot['evaluation/' + k] = v
         for k, v in self.replay_buffer.get_snapshot().items():
+            if (k == 'policy'):
+                snapshot['replay_buffer/' + k]  = v.state_dict()
+                snapshot['replay_buffer/modality_dims'] = v.modality_dims
+                continue
+
             snapshot['replay_buffer/' + k] = v
         return snapshot
 
@@ -189,6 +210,8 @@ class CustomBatchRLAlgorithm(CustomBaseRLAlgorithm, metaclass=abc.ABCMeta):
             num_trains_per_train_loop,
             num_train_loops_per_epoch=1,
             min_num_steps_before_training=0,
+            frozen_policy_epochs=0
+            
     ):
         super().__init__(
             trainer,
@@ -207,6 +230,7 @@ class CustomBatchRLAlgorithm(CustomBaseRLAlgorithm, metaclass=abc.ABCMeta):
         self.num_train_loops_per_epoch = num_train_loops_per_epoch
         self.num_expl_steps_per_train_loop = num_expl_steps_per_train_loop
         self.min_num_steps_before_training = min_num_steps_before_training
+        self.frozen_policy_epochs = frozen_policy_epochs
 
     def _train(self):
         if self.min_num_steps_before_training > 0:
@@ -225,7 +249,7 @@ class CustomBatchRLAlgorithm(CustomBaseRLAlgorithm, metaclass=abc.ABCMeta):
             self.eval_data_collector.collect_new_paths(
                 self.eval_max_path_length,
                 self.num_eval_steps_per_epoch,
-                discard_incomplete_paths=True,
+                discard_incomplete_paths=False,
             )
             gt.stamp('evaluation sampling', unique=False)
 
@@ -239,14 +263,17 @@ class CustomBatchRLAlgorithm(CustomBaseRLAlgorithm, metaclass=abc.ABCMeta):
 
                 self.replay_buffer.add_paths(new_expl_paths)
                 gt.stamp('data storing', unique=False)
+                
 
-                self.training_mode(True)
+                self.training_mode(True, epoch < self.frozen_policy_epochs)
                 for _ in range(self.num_trains_per_train_loop):
                     train_data = self.replay_buffer.random_batch(
                         self.batch_size)
+                   
                     self.trainer.train(train_data)
                 gt.stamp('training', unique=False)
                 self.training_mode(False)
+              
 
             self._end_epoch(epoch)
 
@@ -291,6 +318,7 @@ class CustomBatchRLAlgorithm(CustomBaseRLAlgorithm, metaclass=abc.ABCMeta):
             prefix='evaluation/',
         )
         eval_paths = self.eval_data_collector.get_epoch_paths()
+       
         if hasattr(self.eval_env, 'get_diagnostics'):
             logger.record_dict(
                 self.eval_env.get_diagnostics(eval_paths),
@@ -316,8 +344,10 @@ class CustomTorchBatchRLAlgorithm(CustomBatchRLAlgorithm):
         for net in self.trainer.networks:
             net.to(device)
 
-    def training_mode(self, mode):
-        for net in self.trainer.networks:
+    def training_mode(self, mode, freeze_policy=False):
+        
+        for c,net in enumerate(self.trainer.networks):
+            self.trainer.set_freeze(freeze_policy)
             net.train(mode)
 
 
@@ -334,8 +364,9 @@ def get_custom_generic_path_information(paths, path_length, reward_scale, stat_p
 
     # Grab returns accumulated up to specified timestep
     expl_returns = [sum(path["rewards"][:path_length]) for path in paths]
-
+     
     rewards = np.vstack([path["rewards"] for path in paths])
+   
     # norm_rewards = [path["rewards"] / reward_scale for path in paths]
     statistics.update(eval_util.create_stats_ordered_dict('Rewards', rewards,
                                                 stat_prefix=stat_prefix))
@@ -435,7 +466,7 @@ def rollout(
 
     while path_length < max_path_length:
     #    print(path_length, max_path_length)
-        a, agent_info = agent.get_action(o)
+        a = agent.get_action(o)
         next_o, r, d, env_info = env.step(a)
         observations.append(o)
         rewards.append(r)
@@ -471,7 +502,7 @@ def rollout(
  
             video_writer.append_data(img)
         
-        agent_infos.append(agent_info)
+ 
         env_infos.append(env_info)
         path_length += 1
         if d:
@@ -499,6 +530,6 @@ def rollout(
         rewards=np.array(rewards).reshape(-1, 1),
         next_observations=next_observations,
         terminals=np.array(terminals).reshape(-1, 1),
-        agent_infos=agent_infos,
+       #agent_infos = agent_infos
         env_infos=env_infos,
     )

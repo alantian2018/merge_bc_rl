@@ -2,9 +2,9 @@ from functools import partial
 
 import numpy as np
 import copy
-
+from collections import OrderedDict
 create_rollout_function = partial
-
+import torch
 
 def multitask_rollout(
         env,
@@ -79,12 +79,15 @@ def rollout(
         return_dict_obs=False,
         full_o_postprocess_func=None,
         reset_callback=None,
+     
 ):
     if render_kwargs is None:
         render_kwargs = {}
     if get_action_kwargs is None:
         get_action_kwargs = {}
+
     if preprocess_obs_for_policy_fn is None:
+         
         preprocess_obs_for_policy_fn = lambda x: x
     raw_obs = []
     raw_next_obs = []
@@ -98,16 +101,28 @@ def rollout(
     next_observations = []
     path_length = 0
     agent.reset()
-    o = env.reset()
+    
+    o = env.reset()    
     if reset_callback:
         reset_callback(env, agent, o)
     if render:
         env.render(**render_kwargs)
     while path_length < max_path_length:
         raw_obs.append(o)
-        o_for_agent = preprocess_obs_for_policy_fn(o)
-        a, agent_info = agent.get_action(o_for_agent, **get_action_kwargs)
-
+        
+        """try:
+            o_for_agent = preprocess_obs_for_policy_fn()
+            # just get observation robomimic provides, since that is what it needs to process it.
+            assert (isinstance(o_for_agent, OrderedDict))
+            if not isinstance(o_for_agent, torch.Tensor):
+               o_for_agent = {k: torch.tensor(v).unsqueeze(0).float().to('cuda:0') for k, v in o_for_agent.items()}
+        except:
+            o_for_agent = preprocess_obs_for_policy_fn(o)"""
+       
+        
+        a = agent.get_action(o, **get_action_kwargs)
+        #a = np.asarray(np.reshape(a.cpu(),(-1)))
+         
         if full_o_postprocess_func:
             full_o_postprocess_func(env, agent, o)
 
@@ -126,7 +141,7 @@ def rollout(
         actions.append(a)
         next_observations.append(next_o)
         raw_next_obs.append(next_o)
-        agent_infos.append(agent_info)
+       # agent_infos.append(agent_info)
         env_infos.append(env_info)
         path_length += 1
         if done:
@@ -150,7 +165,7 @@ def rollout(
         next_observations=next_observations,
         terminals=np.array(terminals).reshape(-1, 1),
         dones=np.array(dones).reshape(-1, 1),
-        agent_infos=agent_infos,
+      #  agent_infos=agent_infos,
         env_infos=env_infos,
         full_observations=raw_obs,
         full_next_observations=raw_obs,
@@ -193,13 +208,13 @@ def deprecated_rollout(
     if render:
         env.render(**render_kwargs)
     while path_length < max_path_length:
-        a, agent_info = agent.get_action(o)
+        a = agent.get_action(o)
         next_o, r, d, env_info = env.step(a)
         observations.append(o)
         rewards.append(r)
         terminals.append(d)
         actions.append(a)
-        agent_infos.append(agent_info)
+      #  agent_infos.append(agent_info)
         env_infos.append(env_info)
         path_length += 1
         if d:
@@ -227,6 +242,6 @@ def deprecated_rollout(
         rewards=np.array(rewards).reshape(-1, 1),
         next_observations=next_observations,
         terminals=np.array(terminals).reshape(-1, 1),
-        agent_infos=agent_infos,
+       # agent_infos=agent_infos,
         env_infos=env_infos,
     )

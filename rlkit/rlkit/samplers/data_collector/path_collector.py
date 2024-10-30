@@ -39,6 +39,7 @@ class MdpPathCollector(PathCollector):
             max_path_length,
             num_steps,
             discard_incomplete_paths,
+         
     ):
         paths = []
         num_steps_collected = 0
@@ -51,8 +52,10 @@ class MdpPathCollector(PathCollector):
                 self._env,
                 self._policy,
                 max_path_length=max_path_length_this_loop,
+                preprocess_obs_for_policy_fn = self._env.get_observation,
                 render=self._render,
-                render_kwargs=self._render_kwargs,
+                render_kwargs=self._render_kwargs
+                
             )
             path_len = len(path['actions'])
             if (

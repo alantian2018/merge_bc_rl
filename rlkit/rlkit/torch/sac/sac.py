@@ -12,11 +12,50 @@ from rlkit.core.eval_util import create_stats_ordered_dict
 from rlkit.torch.torch_rl_algorithm import TorchTrainer
 from rlkit.core.logging import add_prefix
 import gtimer as gt
+from rlkit.torch.distributions import MultivariateDiagonalNormal
+from torch.distributions.mixture_same_family import MixtureSameFamily
 
 SACLosses = namedtuple(
     'SACLosses',
     'policy_loss qf1_loss qf2_loss alpha_loss',
 )
+
+class MixtureWrapper():
+    def __init__(self, dist):
+        self.dist = dist
+
+    def rsample(self):
+        z = (
+            self.dist.mean +
+            self.dist.stddev * 
+            MultivariateDiagonalNormal(
+                ptu.zeros(self.dist.mean.size()), 
+                ptu.ones(self.dist.stddev.size())
+                ).sample()
+            )
+        z = z.squeeze(1)
+        z.requires_grad_()
+        return z
+    
+    def logprob(self, val):
+        log_pi = self.dist.log_prob(val)
+        return log_pi
+    
+    def rsample_and_logprob(self):
+        values = self.rsample()
+        logprob = self.logprob(values)
+        return values, logprob
+
+    def __getattr__(self, name):
+        return  getattr(self.dist, name)
+    
+    def get_diagnostics(self):
+        return {}
+
+    def __repr__(self):
+        s = "GaussianMixture(normal_means=%s, normal_stds=%s)"
+        return s % (self.dist.mean, self.dist.stddev)
+
 
 class SACTrainer(TorchTrainer, LossFunction):
     def __init__(
@@ -31,8 +70,8 @@ class SACTrainer(TorchTrainer, LossFunction):
             discount=0.99,
             reward_scale=1.0,
 
-            policy_lr=1e-3,
-            qf_lr=1e-3,
+            policy_lr=3e-4,
+            qf_lr=3e-4,
             optimizer_class=optim.Adam,
 
             soft_target_tau=1e-2,
@@ -42,6 +81,8 @@ class SACTrainer(TorchTrainer, LossFunction):
 
             use_automatic_entropy_tuning=True,
             target_entropy=None,
+            freeze=False,
+           
     ):
         super().__init__()
         self.env = env
@@ -52,6 +93,7 @@ class SACTrainer(TorchTrainer, LossFunction):
         self.target_qf2 = target_qf2
         self.soft_target_tau = soft_target_tau
         self.target_update_period = target_update_period
+        self.freeze = freeze
 
         self.use_automatic_entropy_tuning = use_automatic_entropy_tuning
         if self.use_automatic_entropy_tuning:
@@ -93,6 +135,7 @@ class SACTrainer(TorchTrainer, LossFunction):
         self.eval_statistics = OrderedDict()
 
     def train_from_torch(self, batch):
+        
         gt.blank_stamp()
         losses, stats = self.compute_loss(
             batch,
@@ -106,10 +149,13 @@ class SACTrainer(TorchTrainer, LossFunction):
             losses.alpha_loss.backward()
             self.alpha_optimizer.step()
 
-        self.policy_optimizer.zero_grad()
-        losses.policy_loss.backward()
-        self.policy_optimizer.step()
 
+        if not self.freeze:
+         #   print('optimizing policy')
+            self.policy_optimizer.zero_grad()
+            losses.policy_loss.backward()
+            self.policy_optimizer.step()
+         
         self.qf1_optimizer.zero_grad()
         losses.qf1_loss.backward()
         self.qf1_optimizer.step()
@@ -126,7 +172,7 @@ class SACTrainer(TorchTrainer, LossFunction):
             # Compute statistics using only one batch per epoch
             self._need_to_update_eval_statistics = False
         gt.stamp('sac training', unique=False)
-
+         
     def try_update_target_networks(self):
         if self._n_train_steps_total % self.target_update_period == 0:
             self.update_target_networks()
@@ -154,8 +200,14 @@ class SACTrainer(TorchTrainer, LossFunction):
         Policy and Alpha Loss
         """
         dist = self.policy(obs)
-        new_obs_actions, log_pi = dist.rsample_and_logprob()
-        log_pi = log_pi.unsqueeze(-1)
+        if (isinstance(dist, MixtureSameFamily)):
+            dist = MixtureWrapper(dist)
+
+        new_obs_actions,log_pi = dist.rsample_and_logprob()
+
+          
+
+
         if self.use_automatic_entropy_tuning:
             alpha_loss = -(self.log_alpha * (log_pi + self.target_entropy).detach()).mean()
             alpha = self.log_alpha.exp()
@@ -175,6 +227,8 @@ class SACTrainer(TorchTrainer, LossFunction):
         q1_pred = self.qf1(obs, actions)
         q2_pred = self.qf2(obs, actions)
         next_dist = self.policy(next_obs)
+        if isinstance(next_dist, MixtureSameFamily):
+            next_dist = MixtureWrapper(next_dist)
         new_next_actions, new_log_pi = next_dist.rsample_and_logprob()
         new_log_pi = new_log_pi.unsqueeze(-1)
         target_q_values = torch.min(
@@ -234,6 +288,9 @@ class SACTrainer(TorchTrainer, LossFunction):
 
     def end_epoch(self, epoch):
         self._need_to_update_eval_statistics = True
+
+    def set_freeze(self,mode):
+        self.freeze=mode
 
     @property
     def networks(self):

@@ -19,35 +19,82 @@ from rlkit.torch.networks import ConcatMlp, TanhMlpPolicy
 from rlkit.exploration_strategies.base import PolicyWrappedWithExplorationStrategy
 from rlkit.exploration_strategies.gaussian_strategy import GaussianStrategy
 import rlkit.torch.pytorch_util as ptu
-
+from collections import OrderedDict
 from robosuite.controllers import load_controller_config, ALL_CONTROLLERS
 import robomimic.utils.file_utils as FileUtils
 
 from rekep_rl.custom_gym_wrapper import load_initial, CustomRewardGymWrapper
 
 class robomimic_policy:
-    def __init__(self, policy):
+    def __init__(self, policy, obs_modality_dims):
+        
         self.policy = policy
+        self.model = self.policy.nets['policy']
+        self.modality_dims = obs_modality_dims
+        
+        assert isinstance(self.modality_dims, OrderedDict)
+        self.key = []
+        self.key_size = []
+        for key,dim in self.modality_dims.items():
+            self.key.append(key)
+            self.key_size.append(dim)
 
     def __getattr__(self, name):
-        return getattr(self.policy, name)
+        try:
+            return  getattr(self.policy, name)
+        except:
+            return getattr(self.model, name)
 
-    def parameters(self):
-        return self.policy.nets['policy'].parameters()
+    def __call__(self, obs):
+        if not isinstance(obs, OrderedDict):
+            o = OrderedDict()
+            
+            t = obs.split(self.key_size, dim = 1)
+           
 
-    def to(self, device):
-        self.policy.nets['policy'].to(device)
- 
+            for key, key_obs in zip(self.key , t):
+                o[key] = torch.unsqueeze(key_obs,1)
+            obs = o
+        assert isinstance(obs, OrderedDict)
+        out = self.model.forward_train(obs)
+        
+        return out
+
     def reset(self):
         pass
         
     def close(self):
         pass
+ 
+    def state_dict(self):
+        return self.model.state_dict(),
+  
+    def update_weights_from_ckpt(self, PATH):
+        self.model.load_state_dict(PATH) 
+        self.model.eval()
 
+    def get_action(self, obs):
+        if not isinstance(obs, OrderedDict):
+            o = OrderedDict()
+            obs = torch.from_numpy(obs)
+             
+            t = obs.split(self.key_size, dim = 0)
+           
+
+            for key, key_obs in zip(self.key , t):
+                o[key] = torch.reshape(key_obs,(1,-1)).float()
+                o[key]  = o[key].to('cuda:0')
+            obs = o
+       # print(obs)
+        a= self.policy.get_action(obs)
+        a = a.flatten()
+        
+        return a.cpu().numpy()
+        
 
 def experiment(variant,expl_env,eval_env, path_to_policy, device):
     
-    obs_dim = expl_env.observation_space.low.size
+    obs_dim = expl_env.obs_dim
     action_dim = eval_env.action_space.low.size
 
     M = variant['layer_size']
@@ -72,7 +119,7 @@ def experiment(variant,expl_env,eval_env, path_to_policy, device):
         output_size=1,
         hidden_sizes=[M, M],
     )
-
+  
     if not path_to_policy:
         print('No warm start model detected, training without warm start')    
         policy = TanhGaussianPolicy(
@@ -80,17 +127,18 @@ def experiment(variant,expl_env,eval_env, path_to_policy, device):
             action_dim=action_dim,
             hidden_sizes=[M, M],
         )
+      #  print(policy)
     else:
         print(f"Warm starting RL training with model at {path_to_policy}")
         Rolloutpolicy, ckpt_dict = FileUtils.policy_from_checkpoint(ckpt_path=path_to_policy, device=device, verbose=True)
         policy = Rolloutpolicy.policy 
-         
-        policy = robomimic_policy(policy)
+        policy = robomimic_policy(policy, expl_env.modality_dims)
+       
 
       #  print([i for i in policy.parameters() if i.requires_grad])
         
 
-    eval_policy = MakeDeterministic(policy)
+    eval_policy = policy #MakeDeterministic(policy)
     eval_path_collector = MdpPathCollector(
         eval_env,
         eval_policy,
@@ -122,6 +170,7 @@ def experiment(variant,expl_env,eval_env, path_to_policy, device):
         **variant['algorithm_kwargs']
     )
     algorithm.to(ptu.device)
+    print('training...')
     algorithm.train()
 
 
@@ -135,25 +184,27 @@ if __name__ == "__main__":
         algorithm="SAC",
         version="normal",
         layer_size=256,
-        replay_buffer_size=int(1E6),
+        replay_buffer_size=int(1e6),
         algorithm_kwargs=dict(
-            num_epochs=2000,
-            num_eval_steps_per_epoch=4000,
+            num_epochs=2,
+            num_eval_steps_per_epoch=2000,
             num_trains_per_train_loop=800,
             num_expl_steps_per_train_loop=800,
             min_num_steps_before_training=800,
-            expl_max_path_length=400,
-            eval_max_path_length=400,
+            expl_max_path_length=250,
+            eval_max_path_length=250,
             batch_size=256,
+            frozen_policy_epochs=100
         ),
         trainer_kwargs=dict(
             discount=0.99,
             soft_target_tau=5e-3,
             target_update_period=1,
-            policy_lr=3E-4,
-            qf_lr=3E-4,
+            policy_lr=1E-4,
+            qf_lr=1E-4,
             reward_scale=1,
             use_automatic_entropy_tuning=True,
+            
         ),
     )
 
@@ -203,28 +254,31 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    robomimicenv, initial_local_pose, reward_functions, objects = load_initial(args)
-    expl_env = NormalizedBoxEnv(CustomRewardGymWrapper(
-                                  robomimicenv,
-                                  objects,
-                                  initial_local_pose,
-                                  reward_functions,
-                                  args.camheight,
-                                  args.camwidth,
-                                  args.camera_names[0]))
-
-    eval_env = NormalizedBoxEnv(CustomRewardGymWrapper(
-                                  robomimicenv,
-                                  objects,
-                                  initial_local_pose,
-                                  reward_functions,
-                                  args.camheight,
-                                  args.camwidth,
-                                  args.camera_names[0]))
-
-
-    setup_logger('square-rl', variant=variant)
+    # do NOT flatten if using robomimic forward calls and thus must match their obs convention
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    robomimicenv, initial_local_pose, reward_functions, objects = load_initial(args)
+    expl_env = CustomRewardGymWrapper(
+                                  robomimicenv,
+                                  objects,
+                                  initial_local_pose,
+                                  reward_functions,
+                                  args.camheight,
+                                  args.camwidth,
+                                  args.camera_names[0])
+
+    eval_env = CustomRewardGymWrapper(
+                                  robomimicenv,
+                                  objects,
+                                  initial_local_pose,
+                                  reward_functions,
+                                  args.camheight,
+                                  args.camwidth,
+                                  args.camera_names[0])
+
+
+    setup_logger(args.task_dir.split( '/')[-1], variant=variant)
+    
     ptu.set_gpu_mode(device=='cuda')  # optionally set the GPU (default=False)
     print('starting experiment....')
     experiment(variant,expl_env,eval_env, args.path_to_policy, device)

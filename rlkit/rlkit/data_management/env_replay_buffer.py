@@ -40,6 +40,7 @@ class EnvReplayBuffer(SimpleReplayBuffer):
             new_action[action] = 1
         else:
             new_action = action
+        
         return super().add_sample(
             observation=observation,
             action=new_action,

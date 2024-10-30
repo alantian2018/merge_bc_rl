@@ -135,6 +135,7 @@ class ConcatMlp(Mlp):
         self.dim = dim
 
     def forward(self, *inputs, **kwargs):
+         
         flat_inputs = torch.cat(inputs, dim=self.dim)
         return super().forward(flat_inputs, **kwargs)
 

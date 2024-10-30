@@ -7,6 +7,11 @@ import argparse
 
 def get_dense_reward_constraint(EE, keypoints, reward_functions):
     cost = 0 
+    try:
+        EE = EE.cpu()
+    except:
+        pass
+        
     for func in reward_functions:
         cost -= func(EE, keypoints)
     return cost

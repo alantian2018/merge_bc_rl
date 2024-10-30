@@ -20,7 +20,7 @@ import robosuite as suite
  
 
 from robosuite.controllers import load_controller_config, ALL_CONTROLLERS
-
+from collections import OrderedDict
 import numpy as np
 
 
@@ -163,13 +163,12 @@ def experiment(variant, agent="SAC"):
     algorithm.train()
 
 
-def evaluate_policy(env_config, model_path, n_eval, printout=False):
+def evaluate_policy(env_config, policy, n_eval, printout=False):
     if printout:
         print("Loading policy...")
 
     # Load trained model and corresponding policy
-    data = torch.load(model_path)
-    policy = data['evaluation/policy']
+    
 
     if printout:
         print("Policy loaded")
@@ -223,7 +222,7 @@ def evaluate_policy(env_config, model_path, n_eval, printout=False):
 
 def simulate_policy(
         env,
-        model_path,
+        policy,
         horizon,
         render=False,
         video_writer=None,
@@ -233,17 +232,13 @@ def simulate_policy(
     if printout:
         print("Loading policy...")
 
-    # Load trained model and corresponding policy
-    map_location = torch.device("cuda") if use_gpu else torch.device("cpu")
-    data = torch.load(model_path, map_location=map_location)
-    policy = data['evaluation/policy']
-
     if printout:
         print("Policy loaded")
 
     # Use CUDA if available
     if torch.cuda.is_available():
         set_gpu_mode(True)
+         
         policy.cuda() # if not isinstance(policy, MakeDeterministic) else policy.stochastic_policy.cuda()
 
     if printout:

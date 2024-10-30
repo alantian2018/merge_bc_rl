@@ -556,6 +556,8 @@ class BC_RNN(BC):
                 # for open-loop action sequence prediction
                 self._open_loop_obs = TensorUtils.clone(TensorUtils.detach(obs_dict))
 
+         
+
         obs_to_use = obs_dict
         if self._rnn_is_open_loop:
             # replace current obs with last recorded obs
